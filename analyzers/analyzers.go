@@ -21,16 +21,25 @@ func (l *Listener) Stream(samples [][2]float64) (int, bool) { //int n, bool ok
 		return 0, false
 	}
 	//fmt.Println("STREAMING", len(samples))
-	l.Samples <- samples
+	l.Samples <- samples //TODO: if l.Samples is full, dump
 	return l.Streamer.Stream(samples)
 }
 
 func (l *Listener) Err() error {
 	if l.Streamer == nil {
+		fmt.Println("Error: Streamer is nil")
 		return nil
 	}
 	fmt.Println("ERR ERROR")
 	return l.Streamer.Err()
+}
+
+//an analyzer is made to then take those samples passed through the sample channel and...analyzes them!
+//they are passed to a separate object because multithreading has a small overhead and I'd like to allow for a separate thread to to the FFT/analysis than the one playing the audio so it won't stutter
+type Analyzer interface {
+	Start()
+	Stop()
+	Sampler()
 }
 
 //I have no IRL audio experiene so idk what this is analogous to, will rename later
@@ -44,11 +53,10 @@ func (thloa ThisHoldsLotsOfAnalyzers) Start() {
 	}
 }
 
-//an analyzer is made to then take those samples passed through the sample channel and...analyzes them!
-type Analyzer interface {
-	Start()
-	Stop()
-	Sampler()
+func (thloa ThisHoldsLotsOfAnalyzers) Stop() {
+	for _, a := range thloa.analyzers {
+		a.Stop()
+	}
 }
 
 type FFTAnalyzer struct {
@@ -57,31 +65,32 @@ type FFTAnalyzer struct {
 	Stopped     bool
 }
 
-func (ta *FFTAnalyzer) Sampler() {
+func (ffta *FFTAnalyzer) Sampler() {
 	select {
-	case Samples := <-ta.Samples:
+	case Samples := <-ffta.Samples:
 		cs := make([]complex128, len(Samples))
 		samplesFFTch1 := make([]float64, len(Samples))
 		for i := range Samples {
 			samplesFFTch1[i] = Samples[i][0]
 		}
 		FFT(samplesFFTch1, cs, len(samplesFFTch1), 1)
+		ffta.Frequencies <- samplesFFTch1
 	default:
 
 	}
 }
 
-func (ta *FFTAnalyzer) Start() {
+func (ffta *FFTAnalyzer) Start() {
 	go func() {
-		for !ta.Stopped {
-			ta.Sampler()
+		for !ffta.Stopped {
+			ffta.Sampler()
 		}
 	}()
 
 }
 
-func (ta *FFTAnalyzer) Stop() {
-	ta.Stopped = true
+func (ffta *FFTAnalyzer) Stop() {
+	ffta.Stopped = true
 }
 
 func FFT(x []float64, y []complex128, n int, s int) { //https://rosettacode.org/wiki/Fast_Fourier_transform#Go

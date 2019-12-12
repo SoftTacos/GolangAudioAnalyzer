@@ -1,14 +1,15 @@
 <!doctype html>
 <html>
   <body>
-    <div id="wrapper" position=absolute>
-			<canvas id="c" class="visualizer"></canvas>
+    <div id="wrapper" >
+			<canvas id="c" class="visualizer" width="1000" height="800"></canvas>
 		</div>
   </body>
 </html>
 
 <script>
 let socket = new WebSocket("ws://localhost:8082/visualizerSocket");
+socket.binaryType = 'arraybuffer';//would like to switch back and forth eventually?
 //open – connection established,
 //message – data received,
 //error – websocket error,
@@ -16,6 +17,7 @@ let socket = new WebSocket("ws://localhost:8082/visualizerSocket");
   
 var canvas = document.getElementById("c");
 var cc = canvas.getContext("2d");
+var blobTypeString = "blob"
 
 var toType = function(obj) {//from: http://javascriptweblog.wordpress.com/2011/08/08/fixing-the-javascript-typeof-operator/
   return ({}).toString.call(obj).match(/\s([a-zA-Z]+)/)[1].toLowerCase()
@@ -27,16 +29,15 @@ socket.onopen = function(event) {
 
 //https://developer.mozilla.org/en-US/docs/Web/API/MessageEvent
 socket.onmessage = function(event) {
-  console.log(`Server: \"${event.data}\"`);
-  console.log(event.data.length)
+  let ary=new Uint8Array(event.data)
+  let floatArr = new Float64Array(ary.buffer)
+  drawWav(floatArr)
 };
 
 socket.onclose = function(event) {
   if (event.wasClean) {
     console.log(`[close] Connection closed cleanly, code=${event.code} reason=${event.reason}`);
   } else {
-    // e.g. server process killed or network down
-    // event.code is usually 1006 in this case
     console.log('[close] Connection died');
   }
 };
@@ -44,5 +45,22 @@ socket.onclose = function(event) {
 socket.onerror = function(error) {
   console.log(`[error] ${error.message}`);
 };
+
+function drawWav(floatArr){
+  var scale = 100
+	cc.fillStyle = "black";
+	cc.fillRect(0,0,canvas.width,canvas.height);
+	cc.strokeStyle = "white";
+	cc.beginPath();
+	cc.moveTo(0,scale*floatArr[0]+canvas.height/2);
+	for(i = 1; i < floatArr.length-1; i++){
+		var x = i*canvas.width/floatArr.length;
+		var y = (scale*floatArr[i])+canvas.height/2;
+    //console.log(x,y)
+    cc.lineTo(x, y);
+	}
+	cc.stroke();
+
+}
 
 </script>

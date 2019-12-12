@@ -2,9 +2,11 @@ package main
 
 import (
 	"AudioServer/analyzers"
+	"encoding/binary"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"time"
@@ -15,11 +17,13 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+//these are sitting here while I get details figured out
 var visualizerPageHTML []byte
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 }
+var ta analyzers.FFTAnalyzer
 
 func visualizerPage(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, string(visualizerPageHTML)) //lazy for now
@@ -47,29 +51,24 @@ func visualizerSocketSetup(w http.ResponseWriter, r *http.Request) {
 //this only sends, for now we don't need to listen to the socket
 //messageType is an int and can be 1:Text([]uint8|[]byte), 2:binary(), 8:closemessage, 9:ping message, 10:pong message?
 func visualizerSocketStream(socket *websocket.Conn) {
-	//var p []uint8
-	//var p2 []byte
+	//test send
+	var frequencies []float64
 	for open := true; open; {
-		time.Sleep(1 * time.Second)
-		if err := socket.WriteMessage(1, FStoBS([]float64{})); err != nil {
+		frequencies = <-ta.Frequencies
+		if err := socket.WriteMessage(2, F64StoBS(frequencies)); err != nil {
 			log.Println(err)
 			return
 		}
 	}
+	frequencies = []float64{} //really go
 }
 
-/*
-	messageType, p, err := socket.ReadMessage()
-	if err != nil {
-		log.Println(err)
-		return
+func F64StoBS(stream []float64) []byte { //Float64 slice -> Byte slice
+	byteStream := make([]byte, len(stream)*8, len(stream)*8) //*8 because a byte is uint8, 8*8=64
+	for i, float := range stream {
+		binary.LittleEndian.PutUint64(byteStream[i*8:(i+1)*8], math.Float64bits(float))
 	}
-*/
-
-func FStoBS(stream []float64) []byte { //Float64 slice -> Byte slice
-	//byteStream := []byte{}
-
-	return []byte{0, 0, 0, 0}
+	return byteStream
 }
 
 func FStouI8S(stream []float64) []uint8 { //Float64 slice -> int8 slice
@@ -104,7 +103,7 @@ func LoadTextFile(filename string) []byte {
 
 //placeholder name
 func audioStart() {
-	filename := "TestSong.mp3"
+	filename := "TestSong2.mp3"
 	f, err := os.Open(filename)
 	if err != nil {
 		log.Fatal(err)
@@ -114,20 +113,25 @@ func audioStart() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer streamer.Close()
-
+	//defer streamer.Close()
 	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10)) //samples per second, number of samples to store in the buffer
+	fmt.Println("LOADING SONG")
+	buffer := beep.NewBuffer(format)
+	buffer.Append(streamer)
+	streamer.Close()
+	fmt.Println("LOADED")
+	bs := buffer.Streamer(0, buffer.Len())
 
 	sampleChan := make(chan [][2]float64, 10)
 	songListener := &analyzers.Listener{
-		Streamer: streamer,
+		Streamer: bs,
 		Samples:  sampleChan,
 	}
 
 	speaker.Play(beep.Seq(songListener, beep.Callback(func() {
-		//fmt.Println("Playing: ", filename)
+		fmt.Println("Playing: ")
 	})))
-	ta := analyzers.FFTAnalyzer{}
+	ta = analyzers.FFTAnalyzer{}
 	ta.Samples = sampleChan
 	freqChan := make(chan []float64, 10)
 	ta.Frequencies = freqChan
