@@ -51,12 +51,13 @@ type Analyzer interface {
 	Sampler()
 }
 
-type TestAnalyzer struct {
-	Samples <-chan [][2]float64
-	Stopped bool
+type FFTAnalyzer struct {
+	Samples     <-chan [][2]float64
+	Frequencies chan []float64
+	Stopped     bool
 }
 
-func (ta *TestAnalyzer) Sampler() {
+func (ta *FFTAnalyzer) Sampler() {
 	select {
 	case Samples := <-ta.Samples:
 		cs := make([]complex128, len(Samples))
@@ -64,14 +65,13 @@ func (ta *TestAnalyzer) Sampler() {
 		for i := range Samples {
 			samplesFFTch1[i] = Samples[i][0]
 		}
-		fmt.Println(len(samplesFFTch1))
 		FFT(samplesFFTch1, cs, len(samplesFFTch1), 1)
 	default:
 
 	}
 }
 
-func (ta *TestAnalyzer) Start() {
+func (ta *FFTAnalyzer) Start() {
 	go func() {
 		for !ta.Stopped {
 			ta.Sampler()
@@ -80,7 +80,7 @@ func (ta *TestAnalyzer) Start() {
 
 }
 
-func (ta *TestAnalyzer) Stop() {
+func (ta *FFTAnalyzer) Stop() {
 	ta.Stopped = true
 }
 
