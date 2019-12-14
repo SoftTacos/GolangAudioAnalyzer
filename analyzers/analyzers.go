@@ -8,24 +8,27 @@ import (
 	"github.com/faiface/beep"
 )
 
-//Listener is a wrapper for a streamer, it just tosses the passed in samples to a channel
+//Listener is a wrapper for a stream, it just tosses the passed in samples to a channel. It is a streamer
 type Listener struct {
 	Streamer beep.Streamer
 	Samples  chan<- [][2]float64
 	//might want to have a buffer?
 }
 
-func (l *Listener) Stream(samples [][2]float64) (int, bool) { //int n, bool ok
+func (l Listener) Stream(samples [][2]float64) (int, bool) { //int n, bool ok
 	if l.Streamer == nil {
 		fmt.Println("ERROR")
 		return 0, false
 	}
 	//fmt.Println("STREAMING", len(samples))
+	//select {
+	//case l.Samples <- samples:
 	l.Samples <- samples //TODO: if l.Samples is full, dump
+	//}
 	return l.Streamer.Stream(samples)
 }
 
-func (l *Listener) Err() error {
+func (l Listener) Err() error {
 	if l.Streamer == nil {
 		fmt.Println("Error: Streamer is nil")
 		return nil
@@ -34,29 +37,19 @@ func (l *Listener) Err() error {
 	return l.Streamer.Err()
 }
 
-//an analyzer is made to then take those samples passed through the sample channel and...analyzes them!
-//they are passed to a separate object because multithreading has a small overhead and I'd like to allow for a separate thread to to the FFT/analysis than the one playing the audio so it won't stutter
 type Analyzer interface {
-	Start()
-	Stop()
-	Sampler()
+	SetInputChannel(channel *chan [][2]float64)
+	Stream()
+	//GetData() AnalyzerData
 }
 
-//I have no IRL audio experiene so idk what this is analogous to, will rename later
-type ThisHoldsLotsOfAnalyzers struct {
-	analyzers []Analyzer
+type AnalyzerData struct {
+	Type   string
+	floats []float64
 }
 
-func (thloa ThisHoldsLotsOfAnalyzers) Start() {
-	for _, a := range thloa.analyzers {
-		a.Start()
-	}
-}
+func (ad *AnalyzerData) Data() {
 
-func (thloa ThisHoldsLotsOfAnalyzers) Stop() {
-	for _, a := range thloa.analyzers {
-		a.Stop()
-	}
 }
 
 type FFTAnalyzer struct {
@@ -65,25 +58,33 @@ type FFTAnalyzer struct {
 	Stopped     bool
 }
 
-func (ffta *FFTAnalyzer) Sampler() {
+func (ffta FFTAnalyzer) SetInputChannel(channel *chan [][2]float64) {
+	ffta.Samples = *channel
+}
+
+func (ffta FFTAnalyzer) Stream() {
+	//TODO: allocate variables here before loop
+	//TODO: refactor select statement to wait the thread if samples is empty
 	select {
-	case Samples := <-ffta.Samples:
-		cs := make([]complex128, len(Samples))
-		samplesFFTch1 := make([]float64, len(Samples))
-		for i := range Samples {
-			samplesFFTch1[i] = Samples[i][0]
+	case samples := <-ffta.Samples:
+		//TBD if FFTAnalyzer should check if len(samples) is a power of 2. Keeps the math easy
+		//power := math.Log2(float64(len(samples)))
+		cs := make([]complex128, len(samples))
+		samplesFFTch1 := make([]float64, len(samples))
+		for i := range samples {
+			samplesFFTch1[i] = samples[i][0]
 		}
 		FFT(samplesFFTch1, cs, len(samplesFFTch1), 1)
 		ffta.Frequencies <- samplesFFTch1
 	default:
-
+		//fmt.Println("SAMPLES IS EMPTY: ", &samples)
 	}
 }
 
 func (ffta *FFTAnalyzer) Start() {
 	go func() {
 		for !ffta.Stopped {
-			ffta.Sampler()
+			ffta.Stream()
 		}
 	}()
 
@@ -91,6 +92,11 @@ func (ffta *FFTAnalyzer) Start() {
 
 func (ffta *FFTAnalyzer) Stop() {
 	ffta.Stopped = true
+}
+
+//TODO
+func (ffta FFTAnalyzer) Err() error {
+	return nil
 }
 
 func FFT(x []float64, y []complex128, n int, s int) { //https://rosettacode.org/wiki/Fast_Fourier_transform#Go
@@ -104,4 +110,27 @@ func FFT(x []float64, y []complex128, n int, s int) { //https://rosettacode.org/
 		tf := cmplx.Rect(1, -2*math.Pi*float64(k)/float64(n)) * y[k+n/2]
 		y[k], y[k+n/2] = y[k]+tf, y[k]-tf
 	}
+}
+
+type LowPassFilter struct {
+	Samples     <-chan [][2]float64
+	Frequencies chan []float64
+	stopped     bool
+}
+
+func (lpf *LowPassFilter) Stream() {
+
+}
+
+func (lpf *LowPassFilter) Start() {
+	go func() {
+		for !lpf.stopped {
+			lpf.Stream()
+		}
+	}()
+
+}
+
+func (lpf *LowPassFilter) Stop() {
+	lpf.stopped = true
 }

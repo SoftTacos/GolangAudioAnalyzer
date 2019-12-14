@@ -18,6 +18,7 @@ socket.binaryType = 'arraybuffer';//would like to switch back and forth eventual
 var canvas = document.getElementById("c");
 var cc = canvas.getContext("2d");
 var blobTypeString = "blob"
+var frequencies = new Float64Array()
 
 var toType = function(obj) {//from: http://javascriptweblog.wordpress.com/2011/08/08/fixing-the-javascript-typeof-operator/
   return ({}).toString.call(obj).match(/\s([a-zA-Z]+)/)[1].toLowerCase()
@@ -31,7 +32,8 @@ socket.onopen = function(event) {
 socket.onmessage = function(event) {
   let ary=new Uint8Array(event.data)
   let floatArr = new Float64Array(ary.buffer)
-  drawWav(floatArr)
+  frequencies=floatArr
+  draw()
 };
 
 socket.onclose = function(event) {
@@ -46,8 +48,14 @@ socket.onerror = function(error) {
   console.log(`[error] ${error.message}`);
 };
 
+//var intervalID = setInterval(draw,1000/120);
+
+function draw(){
+  drawWav(frequencies)
+}
+
 function drawWav(floatArr){
-  var scale = 100
+  var scale = 200
 	cc.fillStyle = "black";
 	cc.fillRect(0,0,canvas.width,canvas.height);
 	cc.strokeStyle = "white";
